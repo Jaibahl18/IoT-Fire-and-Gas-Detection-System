@@ -1,8 +1,12 @@
 #include <ESPAsyncWebServer.h>
+#include <MQUnifiedsensor.h>
+#include "secrets.h"
 #include"DHT.h"
 #include<WiFi.h>
 #define DHT_PIN 4
 #define DHT_TYPE DHT11
+#define ON_LED 19
+#define CONNECTING_LED 32
 
 AsyncWebServer server(80);
 AsyncEventSource events("/events");
@@ -37,6 +41,7 @@ const char* html = R"(<!DOCTYPE html>
             display: flex;
             flex-direction: column;
             text-align: center;
+            border-radius : 5px;
             
         }
         .box_head{
@@ -104,15 +109,31 @@ DHT dht(DHT_PIN, DHT_TYPE);
 
 void setup(){
   Serial.begin(115200);
+  pinMode(ON_LED, OUTPUT);
+  ledcSetup(0, 5000, 8);
+  ledcAttachPin(CONNECTING_LED, 0); 
   dht.begin();
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid,pass);
   Serial.print("Connecting");
   while(WiFi.status()!=WL_CONNECTED){
     Serial.print(".");
-    delay(500);
+    ledcWrite(0,255);
+    delay(200);
+    ledcWrite(0,155);
+    delay(200);
+    ledcWrite(0,55);
+    delay(200);
+    ledcWrite(0,0);
+    delay(200);
+    ledcWrite(0,55);
+    delay(200);
+    ledcWrite(0,155);
+    delay(200);
   }
   Serial.print("Connected");
+  digitalWrite(ON_LED,HIGH);
+  ledcWrite(0,0);
   Serial.print("IP : ");
   Serial.print(WiFi.localIP());
 
