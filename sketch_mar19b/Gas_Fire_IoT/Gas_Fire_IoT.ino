@@ -8,6 +8,14 @@
 #define ON_LED 19
 #define CONNECTING_LED 32
 
+#define Board               "ESP-32"
+#define Pin                 34        
+#define Voltage_Resolution  3.3       
+#define ADC_Bit_Resolution  12        
+#define RatioMQ6CleanAir    10       
+
+MQUnifiedsensor MQ6(Board, Voltage_Resolution, ADC_Bit_Resolution, Pin, "MQ-6");
+
 AsyncWebServer server(80);
 AsyncEventSource events("/events");
 const char* ssid = WIFI_SSID;
@@ -41,7 +49,6 @@ const char* html = R"(<!DOCTYPE html>
             display: flex;
             flex-direction: column;
             text-align: center;
-            border-radius : 5px;
             
         }
         .box_head{
@@ -82,20 +89,55 @@ const char* html = R"(<!DOCTYPE html>
     <button>Call Emergency</button>
     <script>
     let fire_stat = false;
+    let gas_stat = false;
+    function update_remark(){
+        if (gas_stat && fire_stat){
+            document.getElementById("remarks").innerText="Active Fire DUE to gas Leak !!!!";
+        }
+        else if (gas_stat){
+            document.getElementById("remarks").innerText="Active gas leak, no ignition yet !!!";
+        }
+        else if(fire_stat){
+            document.getElementById("remarks").innerText="Active Fire NOT DUE to gas Leak !!!!";
+        }
+        else{
+            document.getElementById("remarks").innerText="Normal";
+        }
+    }
+    
     const source = new EventSource('/events');
     source.addEventListener('temperature',function(e){
         document.getElementById("temp_value").innerText = e.data;
         const temp = parseFloat(e.data);
+        
         if (temp > 27){
             fire_stat = true;
             document.getElementById("temp_status").innerText="High";
-            document.getElementById("remarks").innerText="Active Fire in the area. Practice caution";
+            update_remark();
             
         }
         else{
             fire_stat = false;
             document.getElementById("temp_status").innerText="Normal";
-            document.getElementById("remarks").innerText="Conditions Normal";
+            update_remark();
+            
+        }
+
+    });
+    source.addEventListener('gas',function(e){
+        document.getElementById("gas_value").innerText = e.data;
+        const gas = parseFloat(e.data);
+        if (gas > 25){
+            gas_stat = true;
+            document.getElementById("gas_status").innerText="leak";
+            update_remark();
+            
+            
+        }
+        else{
+            gas_stat = false;
+            document.getElementById("gas_status").innerText="Normal";
+            update_remark();
         }
 
     });
@@ -134,6 +176,7 @@ void setup(){
   Serial.print("Connected");
   digitalWrite(ON_LED,HIGH);
   ledcWrite(0,0);
+  delay(500);
   Serial.print("IP : ");
   Serial.print(WiFi.localIP());
 
@@ -143,13 +186,35 @@ void setup(){
   server.on("/",HTTP_GET,[](AsyncWebServerRequest *request){
     request->send(200,"text/html",html);
   });
-  server.begin();
+digitalWrite(ON_LED,LOW);
+ledcWrite(0,255);
+  MQ6.setRegressionMethod(1);  // exponential curve
+MQ6.setA(1000.5);            // LPG curve constants
+MQ6.setB(-2.186);
+MQ6.init();
+
+// calibrate in clean air
+float calcR0 = 0;
+for(int i = 1; i <= 10; i++){
+    MQ6.update();
+    calcR0 += MQ6.calibrate(RatioMQ6CleanAir);
+    delay(500);
+}
+MQ6.setR0(calcR0 / 10);
+digitalWrite(ON_LED,HIGH);
+ledcWrite(0,0);
+server.begin();
   
 }
 
 void loop (){
   delay(2000);
   float t = dht.readTemperature();
+  MQ6.update();
+  float lpg = MQ6.readSensor();
     
   events.send(String(t).c_str(),"temperature",millis());
+  events.send(String(lpg).c_str(),"gas",millis());
+  
+  Serial.println(lpg);
 }
